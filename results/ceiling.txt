@@ -1,0 +1,6 @@
+Weight file: 16547400256 bytes (16.55 GB).
+Decode ceiling at 400 GB/s: 24.17 tok/s, one full read of the weights per token.
+Mean decode over 10 warm runs: 13.17 tok/s, 54.5% of that ceiling.
+Mean prefill: 127.89 tok/s, 5.29 times the decode ceiling. Prefill reads the weights once for many tokens, so it is not held to one token per read.
+
+The gap points at decode weight traffic. Prefill is already several times the one-read rate, and the resident set during the 4096/512 run is about 23 GiB on a 64 GiB machine, so neither prefill compute nor the steady-state footprint is what holds the tokens per second down. Decode would have to move closer to one read of this 16.55 GB file per token to reach the ceiling. Whether the missing half is a second copy of the weights or a kernel that does not fill the bus is the question for the kernel change, which has not been started.

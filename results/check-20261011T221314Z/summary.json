@@ -1,0 +1,15 @@
+{
+  "model": "qwen3.8-27b-text",
+  "architecture": "qwen35",
+  "file_type": "Q4_K_M",
+  "tensor_count": 851,
+  "vision_tensors": [],
+  "projector_layers": [],
+  "file_bytes": 16547400256,
+  "phys_footprint": 997651464,
+  "resident_size": 17376739328,
+  "prompt_eval_count": 6,
+  "eval_count": 12,
+  "response": "\n\nHello! It is a pleasure to meet you.",
+  "runner_pid": 42276
+}

@@ -1,0 +1,31 @@
+{
+  "model": "qwen3.8-27b-text",
+  "context_cap": 8192,
+  "prompt_tokens": 4096,
+  "reply_tokens": 512,
+  "warmup_discarded": 1,
+  "runs": 1,
+  "mean_prefill_tps": 116.07524543779085,
+  "mean_decode_tps": 12.778796462499686,
+  "prefill_tps": [
+    116.07524543779085
+  ],
+  "decode_tps": [
+    12.778796462499686
+  ],
+  "sample_hz": 10.0,
+  "median_decode_phys_footprint": [
+    8775731704.0
+  ],
+  "mean_of_median_decode_phys_footprint": 8775731704.0,
+  "peak_phys_footprint": [
+    8776681976
+  ],
+  "median_decode_resident": [
+    25152258048.0
+  ],
+  "mean_of_median_decode_resident": 25152258048.0,
+  "peak_resident": [
+    25152274432
+  ]
+}
