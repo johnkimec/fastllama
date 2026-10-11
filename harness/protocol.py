@@ -67,3 +67,28 @@ def mark_phases(
 def decode_ceiling_tokens_per_second(weight_bytes: int, bandwidth_bytes_per_s: float = 400e9) -> float:
     """One token per full read of the weights, at the machine's memory bandwidth."""
     return bandwidth_bytes_per_s / weight_bytes
+
+
+def relative_gap(value: float, baseline: float) -> float:
+    """(value - baseline) / baseline. Negative means slower than the baseline."""
+    if baseline <= 0:
+        raise ValueError("baseline must be positive")
+    return (value - baseline) / baseline
+
+
+def spread(values: list[float]) -> float:
+    """(max - min) / mean. The pass rule widens the 5% floor to this when it is wider."""
+    if len(values) < 2:
+        raise ValueError("spread needs at least two samples")
+    return (max(values) - min(values)) / mean(values)
+
+
+def parity_band(baseline_samples: list[float], floor: float = 0.05) -> float:
+    """The close-to-parity band: 5%, or the baseline's own spread when that is wider."""
+    if len(baseline_samples) < 2:
+        return floor
+    return max(floor, spread(baseline_samples))
+
+
+def inside_band(value: float, baseline: float, band: float) -> bool:
+    return abs(relative_gap(value, baseline)) <= band

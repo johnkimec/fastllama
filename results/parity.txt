@@ -1,0 +1,6 @@
+Unmodified llama.cpp beside Ollama, same GGUF, same 512/128 protocol.
+Server: version: 0.3.0-dev (build 1, commit 0f3a71be1).
+Ollama baseline: /Users/samkim/Projects/fastllama/results/speed-20261011T221636Z/summary.json.
+Mean prefill 127.82 tok/s, -0.06% versus Ollama's 127.89 tok/s. Band ±5.0%.
+Mean decode 13.20 tok/s, +0.20% versus Ollama's 13.17 tok/s. Band ±5.0%.
+Both means sit inside the band. A later kernel change is what a 10% win would belong to.

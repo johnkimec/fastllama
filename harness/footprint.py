@@ -111,6 +111,15 @@ def find_runner(weight_digest: str) -> tuple[int, int]:
     return pid, port
 
 
+def find_server(port: int) -> tuple[int, int]:
+    """Find the llama-server listening on this port."""
+    matches = [item for item in list_runners() if item[1] == port]
+    if len(matches) != 1:
+        raise RuntimeError(f"expected one llama-server on port {port}, found {len(matches)}")
+    pid, found_port, _command = matches[0]
+    return pid, found_port
+
+
 def _flag_value(command: str, flag: str) -> str | None:
     parts = command.split()
     for index, part in enumerate(parts):

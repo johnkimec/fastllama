@@ -3,15 +3,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from harness.client import completion_to_result
 from harness.footprint import Sample
 from harness.gguf import summarize, vision_tensors
 from harness.protocol import (
     decode_ceiling_tokens_per_second,
+    inside_band,
     mark_phases,
     mean,
     median,
+    parity_band,
     tokens_per_second,
 )
+from harness.server import llama_server_command
 
 
 class ProtocolTest(unittest.TestCase):
@@ -36,6 +40,70 @@ class ProtocolTest(unittest.TestCase):
 
     def test_decode_ceiling(self):
         self.assertAlmostEqual(decode_ceiling_tokens_per_second(15_000_000_000), 400e9 / 15_000_000_000)
+
+    def test_llama_server_clocks_match_ollama_fields(self):
+        message = {
+            "content": "",
+            "stop": True,
+            "stop_type": "limit",
+            "timings": {
+                "cache_n": 0,
+                "prompt_n": 512,
+                "prompt_ms": 4000.0,
+                "predicted_n": 128,
+                "predicted_ms": 10000.0,
+            },
+        }
+        result = completion_to_result(message, t_end_s=14.0, wall_s=14.0)
+        self.assertEqual(result.prompt_eval_count, 512)
+        self.assertEqual(result.prompt_eval_duration_ns, 4_000_000_000)
+        self.assertEqual(result.prompt_eval_cached_count, 0)
+        self.assertEqual(result.eval_count, 128)
+        self.assertEqual(result.eval_duration_ns, 10_000_000_000)
+        self.assertEqual(result.done_reason, "length")
+        self.assertAlmostEqual(
+            tokens_per_second(result.prompt_eval_count, result.prompt_eval_duration_ns),
+            128.0,
+        )
+        self.assertAlmostEqual(
+            tokens_per_second(result.eval_count, result.eval_duration_ns),
+            12.8,
+        )
+
+    def test_cached_prompt_tokens_count_the_way_ollama_counts_them(self):
+        message = {
+            "stop_type": "eos",
+            "timings": {
+                "cache_n": 10,
+                "prompt_n": 502,
+                "prompt_ms": 1000.0,
+                "predicted_n": 4,
+                "predicted_ms": 200.0,
+            },
+        }
+        result = completion_to_result(message, 1.0, 1.0)
+        self.assertEqual(result.prompt_eval_count, 512)
+        self.assertEqual(result.prompt_eval_cached_count, 10)
+        self.assertEqual(result.done_reason, "stop")
+
+    def test_parity_band_stays_at_five_percent_until_spread_is_wider(self):
+        self.assertEqual(parity_band([10.0, 10.1, 10.2]), 0.05)
+        self.assertGreater(parity_band([10.0, 12.0]), 0.05)
+        self.assertTrue(inside_band(10.4, 10.0, 0.05))
+        self.assertFalse(inside_band(10.6, 10.0, 0.05))
+        self.assertFalse(inside_band(9.4, 10.0, 0.05))
+
+
+class ServerCommandTest(unittest.TestCase):
+    def test_launch_matches_the_ollama_runner_flags(self):
+        command = llama_server_command(Path("/bin/llama-server"), Path("/tmp/model.gguf"), 8081, 8192)
+        self.assertEqual(command[command.index("-c") + 1], "8192")
+        self.assertEqual(command[command.index("-b") + 1], "1024")
+        self.assertEqual(command[command.index("-ub") + 1], "1024")
+        self.assertEqual(command[command.index("--flash-attn") + 1], "auto")
+        self.assertEqual(command[command.index("--keep") + 1], "4")
+        self.assertIn("--context-shift", command)
+        self.assertIn("--no-webui", command)
 
 
 class GgufTest(unittest.TestCase):

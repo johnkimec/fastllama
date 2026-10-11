@@ -1,4 +1,9 @@
-"""Ollama HTTP client and the llama-server tokenizer beside it."""
+"""Ollama HTTP client, and the llama-server client beside it.
+
+Ollama's prompt-eval and eval durations are llama-server's prompt_ms and
+predicted_ms. The second client reads those fields and reports them in the
+same shape, so the two clocks can be compared.
+"""
 
 from __future__ import annotations
 
@@ -91,6 +96,99 @@ class Ollama:
             t_end_s=t_end - t0,
             wall_s=t_end - started,
         )
+
+
+def completion_to_result(message: dict, t_end_s: float, wall_s: float) -> GenerateResult:
+    """Map one llama-server /completion stop message onto Ollama's generate fields.
+
+    Ollama sets prompt_eval_count to cache_n + prompt_n, prompt_eval_duration
+    from prompt_ms, and eval_duration from predicted_ms. stop_type "limit" is
+    Ollama's done_reason "length".
+    """
+    timings = message.get("timings")
+    if not isinstance(timings, dict):
+        raise RuntimeError("llama-server completion had no timings")
+    cache_n = int(timings.get("cache_n") or 0)
+    prompt_ms = float(timings["prompt_ms"])
+    predicted_ms = float(timings["predicted_ms"])
+    stop_type = str(message.get("stop_type") or "")
+    if stop_type == "limit" or message.get("stopped_limit") is True:
+        done_reason = "length"
+    else:
+        done_reason = "stop"
+    return GenerateResult(
+        response=str(message.get("content") or ""),
+        prompt_eval_count=cache_n + int(timings["prompt_n"]),
+        prompt_eval_duration_ns=int(prompt_ms * 1_000_000),
+        prompt_eval_cached_count=cache_n,
+        eval_count=int(timings["predicted_n"]),
+        eval_duration_ns=int(predicted_ms * 1_000_000),
+        load_duration_ns=0,
+        done_reason=done_reason,
+        t_end_s=t_end_s,
+        wall_s=wall_s,
+    )
+
+
+class LlamaServer:
+    """llama-server /completion, reporting timings the way Ollama does."""
+
+    def __init__(self, base: str, context_cap: int = CONTEXT_CAP):
+        self.base = base.rstrip("/")
+        self.context_cap = context_cap
+        self.model = "llama.cpp"
+
+    def generate(self, prompt: str, reply_tokens: int, t0: float | None = None) -> GenerateResult:
+        import time
+
+        if t0 is None:
+            t0 = time.perf_counter()
+        payload = {
+            "prompt": prompt,
+            "stream": True,
+            "cache_prompt": True,
+            "n_predict": reply_tokens,
+            "temperature": 0,
+            "seed": 1,
+        }
+        request = urllib.request.Request(
+            f"{self.base}/completion",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        started = time.perf_counter()
+        try:
+            response = urllib.request.urlopen(request, timeout=900)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"llama-server completion failed: {exc.code} {detail}") from exc
+        parts: list[str] = []
+        final = None
+        with response:
+            for line in response:
+                if not line.strip():
+                    continue
+                text = line.decode("utf-8", errors="replace").strip()
+                if text.startswith(":"):
+                    continue
+                if text.startswith("data:"):
+                    text = text[len("data:") :].strip()
+                if not text or text == "[DONE]":
+                    continue
+                message = json.loads(text)
+                if message.get("error"):
+                    raise RuntimeError(str(message["error"]))
+                piece = message.get("content") or ""
+                if message.get("stop"):
+                    final = message
+                elif piece:
+                    parts.append(piece)
+        t_end = time.perf_counter()
+        if final is None:
+            raise RuntimeError("llama-server completion returned no final message")
+        result = completion_to_result(final, t_end - t0, t_end - started)
+        result.response = "".join(parts) or result.response
+        return result
 
 
 class RunnerTokenizer:

@@ -1,15 +1,17 @@
-"""Run the agreed Ollama protocol: exact token counts, thinking off, runner footprint."""
+"""Run the agreed protocol against stock Ollama, and against unmodified llama.cpp."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from pathlib import Path
 
 from harness.client import (
     CONTEXT_CAP,
     MODEL_NAME,
+    LlamaServer,
     Ollama,
     RunnerTokenizer,
     build_prompts,
@@ -17,14 +19,25 @@ from harness.client import (
     projector_layers,
     weight_digest,
 )
-from harness.footprint import FootprintSampler, find_runner, process_memory
+from harness.footprint import FootprintSampler, find_runner, find_server, process_memory
 from harness.gguf import summarize
 from harness.protocol import (
     decode_ceiling_tokens_per_second,
+    inside_band,
     mark_phases,
     mean,
     median,
+    parity_band,
+    relative_gap,
     tokens_per_second,
+)
+from harness.server import (
+    DEFAULT_LLAMA_SERVER,
+    LLAMA_PORT,
+    llama_server_command,
+    server_version,
+    start_llama_server,
+    wait_until_ready,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,13 +64,31 @@ def main() -> None:
     memory.add_argument("--reply-tokens", type=int, default=512)
     memory.add_argument("--runs", type=int, default=1)
 
+    parity_cmd = sub.add_parser(
+        "parity",
+        help="Unmodified llama.cpp on the same GGUF, compared with an Ollama speed summary",
+    )
+    parity_cmd.add_argument("--prompt-tokens", type=int, default=512)
+    parity_cmd.add_argument("--reply-tokens", type=int, default=128)
+    parity_cmd.add_argument("--runs", type=int, default=10)
+    parity_cmd.add_argument("--port", type=int, default=LLAMA_PORT)
+    parity_cmd.add_argument("--llama-server", type=Path, default=DEFAULT_LLAMA_SERVER)
+    parity_cmd.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help="Ollama speed summary.json. Defaults to the newest results/speed-*/summary.json",
+    )
+
     args = parser.parse_args()
     if args.command == "check":
         check(args.model, args.gguf, args.context_cap)
     elif args.command == "speed":
         suite(args, sample_footprint=False)
-    else:
+    elif args.command == "memory":
         suite(args, sample_footprint=True)
+    else:
+        parity(args)
 
 
 def check(model: str, gguf: Path, context_cap: int) -> None:
@@ -100,11 +131,92 @@ def suite(args, sample_footprint: bool) -> None:
     client = Ollama(args.model, args.context_cap)
     manifest = model_manifest(args.model)
     digest = weight_digest(manifest)
-    delta = _calibrate(client, digest)
+    summary, traces = measure(args, client, lambda: find_runner(digest), sample_footprint)
+    if not sample_footprint:
+        weight_bytes = args.gguf.stat().st_size
+        ceiling = decode_ceiling_tokens_per_second(weight_bytes)
+        summary["weight_bytes"] = weight_bytes
+        summary["decode_ceiling_tps"] = ceiling
+        summary["decode_fraction_of_ceiling"] = summary["mean_decode_tps"] / ceiling
+        summary["prefill_over_ceiling"] = summary["mean_prefill_tps"] / ceiling
+    out_dir = _write_json(args.command, summary, traces if sample_footprint else None)
+    _print_means(summary)
+    if "decode_ceiling_tps" in summary:
+        print(
+            f"decode ceiling {summary['decode_ceiling_tps']:.2f} tok/s "
+            f"at 400 GB/s over {summary['weight_bytes'] / 1e9:.2f} GB of weights"
+        )
+        print(f"decode is {summary['decode_fraction_of_ceiling']:.2%} of that ceiling")
+        _write_ceiling_note(summary)
+    if sample_footprint:
+        _print_memory(summary, out_dir)
+
+
+def parity(args) -> None:
+    """Same 512/128 protocol on a separate llama-server, then the 5% check."""
+    baseline_path = args.baseline or _latest_speed_summary()
+    baseline = json.loads(baseline_path.read_text())
+    _stop_ollama_runner(args.model)
+    out_dir = _result_dir("parity")
+    version = server_version(args.llama_server)
+    command = llama_server_command(args.llama_server, args.gguf, args.port, args.context_cap)
+    print(version)
+    print(" ".join(command))
+    process = start_llama_server(
+        args.gguf,
+        out_dir / "server.log",
+        args.context_cap,
+        port=args.port,
+        binary=args.llama_server,
+    )
+    try:
+        print(f"waiting for llama-server on port {args.port} to load the GGUF")
+        wait_until_ready(process)
+        base = f"http://127.0.0.1:{args.port}"
+        client = LlamaServer(base, args.context_cap)
+        summary, _traces = measure(
+            args,
+            client,
+            lambda: find_server(args.port),
+            sample_footprint=False,
+        )
+    finally:
+        process.stop()
+    prefill_band = parity_band(baseline["prefill_tps"])
+    decode_band = parity_band(baseline["decode_tps"])
+    prefill_gap = relative_gap(summary["mean_prefill_tps"], baseline["mean_prefill_tps"])
+    decode_gap = relative_gap(summary["mean_decode_tps"], baseline["mean_decode_tps"])
+    prefill_inside = inside_band(summary["mean_prefill_tps"], baseline["mean_prefill_tps"], prefill_band)
+    decode_inside = inside_band(summary["mean_decode_tps"], baseline["mean_decode_tps"], decode_band)
+    summary["engine"] = "llama.cpp"
+    summary["llama_server"] = version
+    summary["command"] = command
+    summary["ollama_baseline"] = str(baseline_path)
+    summary["ollama_mean_prefill_tps"] = baseline["mean_prefill_tps"]
+    summary["ollama_mean_decode_tps"] = baseline["mean_decode_tps"]
+    summary["prefill_gap"] = prefill_gap
+    summary["decode_gap"] = decode_gap
+    summary["prefill_band"] = prefill_band
+    summary["decode_band"] = decode_band
+    summary["prefill_inside"] = prefill_inside
+    summary["decode_inside"] = decode_inside
+    summary["gguf"] = str(args.gguf)
+    summary["within_5_percent"] = prefill_inside and decode_inside
+    _write_json("parity", summary, out_dir=out_dir)
+    note = _parity_note(summary)
+    note_path = ROOT / "results" / "parity.txt"
+    note_path.write_text(note)
+    _print_means(summary)
+    print(note, end="")
+    print(f"wrote {note_path}")
+
+
+def measure(args, client, locate, sample_footprint: bool) -> tuple[dict, list]:
+    delta = _calibrate(client, locate)
     content_tokens = args.prompt_tokens - delta
     if content_tokens < 1:
         raise SystemExit(f"prompt token target {args.prompt_tokens} is smaller than the BOS overhead {delta}")
-    pid, port = find_runner(digest)
+    pid, port = locate()
     tokenizer = RunnerTokenizer(port)
     # One discarded warmup, then the measured runs. Each string is new.
     salt = time.strftime("%H%M%S")
@@ -169,42 +281,33 @@ def suite(args, sample_footprint: bool) -> None:
         summary["median_decode_resident"] = resident_medians
         summary["mean_of_median_decode_resident"] = mean(resident_medians)
         summary["peak_resident"] = resident_peaks
-    else:
-        weight_bytes = args.gguf.stat().st_size
-        ceiling = decode_ceiling_tokens_per_second(weight_bytes)
-        summary["weight_bytes"] = weight_bytes
-        summary["decode_ceiling_tps"] = ceiling
-        summary["decode_fraction_of_ceiling"] = summary["mean_decode_tps"] / ceiling
-        summary["prefill_over_ceiling"] = summary["mean_prefill_tps"] / ceiling
-    out_dir = _write_json(args.command, summary, traces if sample_footprint else None)
+    return summary, traces
+
+
+def _print_means(summary: dict) -> None:
     print(
         f"mean prefill {summary['mean_prefill_tps']:.2f} tok/s  "
         f"mean decode {summary['mean_decode_tps']:.2f} tok/s"
     )
-    if "decode_ceiling_tps" in summary:
-        print(
-            f"decode ceiling {summary['decode_ceiling_tps']:.2f} tok/s "
-            f"at 400 GB/s over {summary['weight_bytes'] / 1e9:.2f} GB of weights"
-        )
-        print(f"decode is {summary['decode_fraction_of_ceiling']:.2%} of that ceiling")
-        _write_ceiling_note(summary)
-    if sample_footprint:
-        gib = 1024**3
-        print(
-            f"mean of median decode phys_footprint "
-            f"{summary['mean_of_median_decode_phys_footprint'] / gib:.2f} GiB"
-        )
-        print(
-            f"mean of median decode resident "
-            f"{summary['mean_of_median_decode_resident'] / gib:.2f} GiB"
-        )
-        print(f"trace {out_dir / 'trace.jsonl'}")
 
 
-def _calibrate(client: Ollama, digest: str) -> int:
-    """How many prompt-eval tokens Ollama adds beyond the raw string (the BOS)."""
+def _print_memory(summary: dict, out_dir: Path) -> None:
+    gib = 1024**3
+    print(
+        f"mean of median decode phys_footprint "
+        f"{summary['mean_of_median_decode_phys_footprint'] / gib:.2f} GiB"
+    )
+    print(
+        f"mean of median decode resident "
+        f"{summary['mean_of_median_decode_resident'] / gib:.2f} GiB"
+    )
+    print(f"trace {out_dir / 'trace.jsonl'}")
+
+
+def _calibrate(client, locate) -> int:
+    """How many prompt-eval tokens the server adds beyond the raw string (the BOS)."""
     result = client.generate("calibration probe", 1)
-    _pid, port = find_runner(digest)
+    _pid, port = locate()
     content_tokens = len(RunnerTokenizer(port).tokenize("calibration probe"))
     delta = result.prompt_eval_count - content_tokens
     if delta < 0 or delta > 2:
@@ -212,7 +315,7 @@ def _calibrate(client: Ollama, digest: str) -> int:
     return delta
 
 
-def _one_run(client: Ollama, prompt: str, reply_tokens: int, pid: int | None) -> dict:
+def _one_run(client, prompt: str, reply_tokens: int, pid: int | None) -> dict:
     sampler = None
     t0 = time.perf_counter()
     if pid is not None:
@@ -272,10 +375,72 @@ def _require_exact(run: dict, prompt_tokens: int, reply_tokens: int) -> None:
         )
 
 
-def _write_json(kind: str, summary: dict, traces: list | None = None) -> Path:
+def _result_dir(kind: str) -> Path:
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     out_dir = ROOT / "results" / f"{kind}-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _latest_speed_summary() -> Path:
+    matches = sorted((ROOT / "results").glob("speed-*/summary.json"))
+    if not matches:
+        raise SystemExit("no Ollama speed summary under results/speed-*/summary.json")
+    return matches[-1]
+
+
+def _stop_ollama_runner(model: str) -> None:
+    """Drop Ollama's runner so the parity run is the only process holding the weights."""
+    try:
+        digest = weight_digest(model_manifest(model))
+        find_runner(digest)
+    except (FileNotFoundError, RuntimeError):
+        return
+    print(f"stopping Ollama runner for {model} so the two servers do not share the machine")
+    subprocess.run(["ollama", "stop", model], check=False)
+    time.sleep(1)
+
+
+def _parity_note(summary: dict) -> str:
+    prefill_pct = summary["prefill_gap"] * 100
+    decode_pct = summary["decode_gap"] * 100
+    lines = [
+        f"Unmodified llama.cpp beside Ollama, same GGUF, same 512/128 protocol.",
+        f"Server: {summary['llama_server']}.",
+        f"Ollama baseline: {summary['ollama_baseline']}.",
+        (
+            f"Mean prefill {summary['mean_prefill_tps']:.2f} tok/s, "
+            f"{prefill_pct:+.2f}% versus Ollama's {summary['ollama_mean_prefill_tps']:.2f} tok/s. "
+            f"Band ±{summary['prefill_band']:.1%}."
+        ),
+        (
+            f"Mean decode {summary['mean_decode_tps']:.2f} tok/s, "
+            f"{decode_pct:+.2f}% versus Ollama's {summary['ollama_mean_decode_tps']:.2f} tok/s. "
+            f"Band ±{summary['decode_band']:.1%}."
+        ),
+    ]
+    if summary["within_5_percent"]:
+        lines.append(
+            "Both means sit inside the band. A later kernel change is what a 10% win would belong to."
+        )
+    else:
+        missed = []
+        if not summary["prefill_inside"]:
+            missed.append("prefill")
+        if not summary["decode_inside"]:
+            missed.append("decode")
+        lines.append(
+            "Clock mismatch before any kernel change: "
+            + " and ".join(missed)
+            + " landed outside the band. "
+            "The gap is this second process, not a kernel change. Step 6 waits until this is inside the band."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _write_json(kind: str, summary: dict, traces: list | None = None, out_dir: Path | None = None) -> Path:
+    if out_dir is None:
+        out_dir = _result_dir(kind)
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     if traces is not None:
         lines = [json.dumps(sample) for sample in traces]
