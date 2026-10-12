@@ -1,0 +1,73 @@
+{
+  "stamp": "20261012T011849Z",
+  "gguf": "/Users/samkim/Projects/fastllama/models/Qwen3.8-27B-Text-Only-Q4_K_M.gguf",
+  "temperature": 0,
+  "seed": 1,
+  "n_probs": 2,
+  "ignore_eos": true,
+  "comparison": {
+    "france-512": {
+      "stock_tokens": 512,
+      "wide_tokens": 512,
+      "token_ids_equal": true,
+      "text_equal": true,
+      "first_mismatch": null,
+      "mismatch": null,
+      "logprobs_compared": 512,
+      "max_abs_logprob_delta": 0.0002681612968444824,
+      "closest_stock_margin": {
+        "index": 290,
+        "margin": 0.029155731201171875,
+        "delta": 2.5510787963867188e-05,
+        "top": 54788,
+        "second": 15425
+      },
+      "stock_stop": "limit",
+      "wide_stop": "limit",
+      "stock_preview": " Paris.\nThe capital of Germany is Berlin.\nThe capital of Italy is Rome.\nThe capital of Spain is Madrid.\nThe capital of Portugal is Lisbon.\nThe capital of Greece is Athens.\nThe capital of the United Kingdom is London.\nThe capital of Ireland ",
+      "wide_preview": " Paris.\nThe capital of Germany is Berlin.\nThe capital of Italy is Rome.\nThe capital of Spain is Madrid.\nThe capital of Portugal is Lisbon.\nThe capital of Greece is Athens.\nThe capital of the United Kingdom is London.\nThe capital of Ireland "
+    },
+    "bandwidth-128": {
+      "stock_tokens": 128,
+      "wide_tokens": 128,
+      "token_ids_equal": true,
+      "text_equal": true,
+      "first_mismatch": null,
+      "mismatch": null,
+      "logprobs_compared": 128,
+      "max_abs_logprob_delta": 0.0002416372299194336,
+      "closest_stock_margin": {
+        "index": 60,
+        "margin": 0.011304795742034912,
+        "delta": 2.8073787689208984e-05,
+        "top": 9370,
+        "second": 6762
+      },
+      "stock_stop": "limit",
+      "wide_stop": "limit",
+      "stock_preview": "\n\nTo understand how a matrix-vector product (specifically $y = Ax$) utilizes memory bandwidth on a GPU, we must look at the relationship between the hardware architecture and the arithmetic intensity of the operation.\n\n### 1. The Arithmetic",
+      "wide_preview": "\n\nTo understand how a matrix-vector product (specifically $y = Ax$) utilizes memory bandwidth on a GPU, we must look at the relationship between the hardware architecture and the arithmetic intensity of the operation.\n\n### 1. The Arithmetic"
+    },
+    "protocol-512-128": {
+      "stock_tokens": 128,
+      "wide_tokens": 128,
+      "token_ids_equal": true,
+      "text_equal": true,
+      "first_mismatch": null,
+      "mismatch": null,
+      "logprobs_compared": 128,
+      "max_abs_logprob_delta": 0.0005637183785438538,
+      "closest_stock_margin": {
+        "index": 75,
+        "margin": 3.56682401150465,
+        "delta": 0.0005637183785438538,
+        "top": 17,
+        "second": 23
+      },
+      "stock_stop": "limit",
+      "wide_stop": "limit",
+      "stock_preview": "-24 quality-20261012T011849Z-25 quality-20261012T011849Z-26 quality-20261012T011849Z-27 quality-20261012T011849Z-28 quality-20261012T011849Z-29 quality-20261012T011849Z-3",
+      "wide_preview": "-24 quality-20261012T011849Z-25 quality-20261012T011849Z-26 quality-20261012T011849Z-27 quality-20261012T011849Z-28 quality-20261012T011849Z-29 quality-20261012T011849Z-3"
+    }
+  }
+}

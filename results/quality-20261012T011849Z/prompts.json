@@ -1,0 +1,17 @@
+[
+  {
+    "name": "france-512",
+    "n_predict": 512,
+    "prompt": "The capital of France is"
+  },
+  {
+    "name": "bandwidth-128",
+    "n_predict": 128,
+    "prompt": "Explain how a matrix-vector product uses memory bandwidth on a GPU."
+  },
+  {
+    "name": "protocol-512-128",
+    "n_predict": 128,
+    "prompt": "quality-20261012T011849Z-0 quality-20261012T011849Z-1 quality-20261012T011849Z-2 quality-20261012T011849Z-3 quality-20261012T011849Z-4 quality-20261012T011849Z-5 quality-20261012T011849Z-6 quality-20261012T011849Z-7 quality-20261012T011849Z-8 quality-20261012T011849Z-9 quality-20261012T011849Z-10 quality-20261012T011849Z-11 quality-20261012T011849Z-12 quality-20261012T011849Z-13 quality-20261012T011849Z-14 quality-20261012T011849Z-15 quality-20261012T011849Z-16 quality-20261012T011849Z-17 quality-20261012T011849Z-18 quality-20261012T011849Z-19 quality-20261012T011849Z-20 quality-20261012T011849Z-21 quality-20261012T011849Z-22 quality-20261012T011849Z-23 quality-20261012T011849Z"
+  }
+]
