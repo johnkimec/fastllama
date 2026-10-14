@@ -1,0 +1,12 @@
+# Agentic stuff
+.agents/
+skills-lock.json
+
+# Upstream llama.cpp checkout and its build. The one kernel change stays a diff against commit 0f3a71be1.
+third_party/
+
+# Shared weight file. The vision projector is not part of this project.
+models/*.gguf
+
+# Python
+__pycache__/

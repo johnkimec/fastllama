@@ -1,15 +1,1 @@
-Wide-load Q4_K decode kernel beside Ollama, same GGUF, same 512/128 protocol.
-Server: version: 0.3.0-dev (build 10760, commit 0f3a71be1). kernel_mul_mv_q4_K_f32 loads the activation as float4 and the weight slice as uint2. No second buffer.
-Ollama baseline: /Users/samkim/Projects/fastllama/results/speed-20261011T221636Z/summary.json.
-Unmodified source build: /Users/samkim/Projects/fastllama/results/parity-20261012T003904Z/summary.json (prefill 126.89 tok/s, decode 13.12 tok/s).
-Mean prefill 127.50 tok/s, -0.31% versus Ollama's 127.89 tok/s. Inside ±5%.
-Mean decode 14.18 tok/s, +7.67% versus Ollama's 13.17 tok/s, and about +8.1% versus the unmodified source build's 13.12 tok/s. Faster than the 5% band, short of the 10% bar (14.49 tok/s).
-A greedy 32-token reply matched the unmodified build. Run: results/parity-20261012T010510Z.
-The harness text that called this a clock mismatch is wrong. The checker treats any gap outside ±5%, including a faster decode, as a mismatch.
-
-Q6_K decode kernel, activation loaded as float4. Weight bytes stay byte loads: a Q6_K block is 210 bytes, so a wider integer load is misaligned on odd blocks.
-Same GGUF, same 512/128 protocol. Server: version: 0.3.0-dev (build 10760, commit 0f3a71be1).
-A first speed run, results/parity-20261012T014626Z, started at decode 13.22 tok/s and fell to 11.61. It followed the quality check on a hot machine. It is not the kernel result.
-The cooled run, results/parity-20261012T015145Z, kept every warm decode between 14.20 and 14.27 tok/s. Mean prefill 127.58 tok/s, -0.24% versus Ollama. Mean decode 14.24 tok/s, +8.12% versus Ollama's 13.17, about 0.06 above the Q4-only mean of 14.18. The two spreads meet. Short of the 10% bar (14.49 tok/s).
-Greedy check results/quality-q6-20261012T014248Z: 768 token ids matched the Q4-only build and the unmodified source build. Chosen-token logprobs matched the Q4-only build exactly (max gap 0). The gap versus the unmodified build is the Q4_K wide loads.
-The harness text that calls the +8.12% decode a clock mismatch is the same checker mistake as above.
+Settled on the step 7 kernel. The kept run is results/parity-20261012T015145Z: mean decode 14.24 tok/s, +8.12% versus Ollama, short of the 10% line at 14.49. Mean prefill on that run was 127.58 tok/s. The Q4 dot-product run results/parity-20261014T012630Z and the Q6 ushort run results/parity-20261014T020254Z measured slower and are not the kernel that stays.

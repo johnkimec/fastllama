@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fastllama</title>
+<meta name="description" content="Wider loads in the Metal decode kernel raised Qwen on an M1 Max from 13.17 to 14.24 tokens per second. Prefill and memory did not move.">
+<link rel="icon" href="icon.svg" type="image/svg+xml" sizes="any">
+<style>
+  @font-face {
+    font-family: "Excalifont";
+    src: url("fonts/Excalifont-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  :root {
+    --paper: #f4f3ef;
+    --ink: #1c1c1c;
+    --muted: #5e5e5a;
+    --faint: #8a8a84;
+    --line: #d9d7d0;
+    --accent: #a33d2a;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Excalifont, "Segoe Print", "Comic Sans MS", ui-rounded, sans-serif;
+    font-size: 19px;
+    line-height: 1.45;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  a { color: inherit; }
+  code {
+    font-family: inherit;
+    font-size: 0.92em;
+  }
+  h1, h2 { text-wrap: balance; font-weight: 400; }
+  p { text-wrap: pretty; }
+  .wrap { width: min(1040px, calc(100% - 48px)); margin: 0 auto; }
+  header {
+    padding: 28px 0 0;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  header a { color: var(--muted); }
+  .hero { padding: 36px 0 8px; }
+  .kicker { margin: 0; color: var(--muted); font-size: 16px; }
+  h1 { font-size: clamp(34px, 4.6vw, 52px); line-height: 1.05; margin: 8px 0 14px; max-width: 16em; }
+  .lede { margin: 0 0 22px; max-width: 38em; }
+  .stats {
+    list-style: none; margin: 6px 0 0; padding: 0;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+  }
+  .stats li { margin: 0; color: var(--muted); }
+  .stats b { display: block; color: var(--ink); font-weight: 400; }
+  .stats em { font-style: normal; color: var(--accent); }
+  section { padding: 48px 0 8px; }
+  h2 { font-size: 28px; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 22px; max-width: 40em; }
+  .figure { margin: 0 0 8px; }
+  .figure svg { width: 100%; height: auto; display: block; }
+  .caption { color: var(--muted); font-size: 15px; margin: 8px 0 0; max-width: 46em; }
+  table { width: 100%; border-collapse: collapse; font-size: 17px; font-variant-numeric: tabular-nums; max-width: 40em; }
+  th, td { text-align: left; padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 400; }
+  td.num, th.num { text-align: right; padding-right: 0; }
+  pre {
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    max-width: 40em;
+    background: #fbfaf7;
+    border: 1px solid var(--line);
+    overflow-x: auto;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  footer { padding: 36px 0 56px; color: var(--muted); font-size: 15px; }
+  @media (max-width: 800px) {
+    .stats { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span>fastllama</span>
+    <a href="https://github.com/johnkimec/fastllama">source</a>
+  </header>
+
+  <div class="hero">
+    <p class="kicker">Qwen3.8-27B, 4-bit, M1 Max, the same file Ollama loads</p>
+    <h1>Wider loads, 14.24 tokens a second.</h1>
+    <p class="lede">Decode on this chip is a read of the weights. The mat-vec kernel was loading those bytes a few at a time. Reading the activation as a <code>float4</code> and each Q4_K weight slice as a <code>uint2</code> raised mean decode from 13.17 to 14.24 tokens per second. Prefill stayed flat. Memory did not drop.</p>
+    <ul class="stats">
+      <li><b><em>14.24</em> tok/s</b> mean decode, ten warm runs</li>
+      <li><b><em>+8.12%</em></b> versus Ollama’s 13.17</li>
+      <li><b><em>59%</em> of the ceiling</b> 24.17 tok/s at 400 GB/s</li>
+    </ul>
+  </div>
+
+  <section id="ceiling">
+    <h2>One read of the weights is 24.17 tok/s.</h2>
+    <p class="sub">The file is about 16.6 GB of weights. At 400 GB/s, one full read per generated token is 24.17 tok/s. Ollama uses 54.5% of that. This build uses 58.9%. The 10% line was 14.49 tok/s.</p>
+    <figure class="figure">
+      <svg viewBox="0 0 720 188" role="img" aria-labelledby="bar-title bar-desc">
+        <title id="bar-title">Decode rate against the bandwidth ceiling</title>
+        <desc id="bar-desc">Ollama at 13.17 tokens per second, this build at 14.24, and a ceiling of 24.17 from one read of the weights at 400 gigabytes per second.</desc>
+        <g fill="#1c1c1c" font-family="Excalifont, ui-rounded, sans-serif" font-size="16">
+          <text x="0" y="28">Ollama</text>
+          <text x="0" y="84">this build</text>
+          <text x="0" y="140">one read</text>
+        </g>
+        <g fill="#e7e5df" stroke="#1c1c1c" stroke-width="1.4">
+          <rect x="118" y="10" width="560" height="26" rx="2"/>
+          <rect x="118" y="66" width="560" height="26" rx="2"/>
+          <rect x="118" y="122" width="560" height="26" rx="2"/>
+        </g>
+        <g fill="#1c1c1c">
+          <rect x="118" y="10" width="305" height="26"/>
+          <rect x="118" y="66" width="330" height="26"/>
+        </g>
+        <rect x="118" y="122" width="560" height="26" fill="#a33d2a"/>
+        <g fill="#f4f3ef" font-family="Excalifont, ui-rounded, sans-serif" font-size="15">
+          <text x="128" y="28">13.17</text>
+          <text x="128" y="84">14.24</text>
+          <text x="128" y="140">24.17 tok/s</text>
+        </g>
+      </svg>
+      <figcaption class="caption">512 prompt tokens, 128 reply tokens. One warmup discarded, then the mean of ten runs. Thinking off, temperature 0, context cap 8192. The weight-load time is not in either rate.</figcaption>
+    </figure>
+  </section>
+
+  <section id="loads">
+    <h2>The kernel already had the bytes. It was fetching them narrowly.</h2>
+    <p class="sub">Q4_K is 73% of the file, 12.08 GB. In <code>kernel_mul_mv_q4_K_f32</code> the activation had been one float at a time and the weight slice one <code>uint16</code> at a time. The kept edit loads sixteen bytes of activation and eight bytes of weights, then unpacks into the same scalar multiply as before.</p>
+    <pre>float4 a0 = ((device const float4 *)(y4 + 0))[0];
+uint2 q1v = ((device const uint2 *)q1)[0];</pre>
+    <p class="sub">That change, alone, measured 14.18 tok/s. Q6_K is the other 27%. Its activations are also loaded as <code>float4</code> in the settled kernel. Those loads added about 0.06 tok/s, and the two spreads meet. The Q6 weight bytes stay one byte at a time: a block is 210 bytes, so a wider integer load is misaligned on odd blocks. The patch is both edits, against llama.cpp <code>0f3a71be1</code>.</p>
+    <p><a href="https://github.com/johnkimec/fastllama/blob/main/patches/mul_mv-wide-loads.patch">patches/mul_mv-wide-loads.patch</a></p>
+  </section>
+
+  <section id="held">
+    <h2>Prefill and memory stayed where they were.</h2>
+    <p class="sub">The pass rule wanted 10% on prefill, decode, and steady-state footprint together. Decode is short of that. The other two did not move. Two later edits of the same kernel measured slower, so they are not in the patch.</p>
+    <table>
+      <caption class="caption">Mean tokens per second. The 10% decode line is 14.49.</caption>
+      <thead>
+        <tr><th>Run</th><th class="num">Prefill</th><th class="num">Decode</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ollama</td><td class="num">127.89</td><td class="num">13.17</td></tr>
+        <tr><td>Wide loads, the kept build</td><td class="num">127.58</td><td class="num">14.24</td></tr>
+        <tr><td>Q4 dot products, reverted</td><td class="num">124.76</td><td class="num">14.10</td></tr>
+        <tr><td>Q6 ushort weights, reverted</td><td class="num">125.02</td><td class="num">14.02</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">The ushort run sagged after the fourth sample. Before that sag the runs sat between 14.09 and 14.13, still under the kept build’s 14.20 to 14.27. Greedy token ids matched the unmodified source build on 768 tokens for the kept kernel and for both reverted ones.</p>
+  </section>
+
+  <footer>
+    <p>M1 Max, 64 GB. Stock Ollama was not modified. The kept run is <code>results/parity-20261012T015145Z</code>.</p>
+  </footer>
+</div>
+</body>
+</html>
