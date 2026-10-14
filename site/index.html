@@ -108,7 +108,7 @@
   </div>
 
   <section id="ceiling">
-    <h2>One read of the weights is 24.17 tok/s.</h2>
+    <h2>One read of the weights is 24.17 tok/s.*</h2>
     <p class="sub">The file is about 16.6 GB of weights. At 400 GB/s, one full read per generated token is 24.17 tok/s. Ollama uses 54.5% of that. This build uses 58.9%. The 10% line was 14.49 tok/s.</p>
     <figure class="figure">
       <svg viewBox="0 0 720 188" role="img" aria-labelledby="bar-title bar-desc">
@@ -132,10 +132,11 @@
         <g fill="#f4f3ef" font-family="Excalifont, ui-rounded, sans-serif" font-size="15">
           <text x="128" y="28">13.17</text>
           <text x="128" y="84">14.24</text>
-          <text x="128" y="140">24.17 tok/s</text>
+          <text x="128" y="140">24.17 tok/s*</text>
         </g>
       </svg>
       <figcaption class="caption">512 prompt tokens, 128 reply tokens. One warmup discarded, then the mean of ten runs. Thinking off, temperature 0, context cap 8192. The weight-load time is not in either rate.</figcaption>
+      <p class="caption">* 24.17 is the spec sheet, not a speed I measured. The M1 Max is advertised at 400 GB/s, the weights are 16.6 GB, and 400 divided by 16.6 is about 24 tokens a second if each token were nothing but one read of that file. 14.24 times 16.6 GB is around 240 GB/s, so the reads never got near the advertised number. Bigger loads picked up about one token a second, and the other ideas were slower. A second pass over the weights is a bad excuse: the prompt already reuses them and runs much faster than one read, and keeping an extra copy of the Q4 weights made decode slower. The KV cache on these runs is about 40 MB next to a 16 GB file. I don't know what the other 10 tokens a second are waiting on.</p>
     </figure>
   </section>
 
@@ -164,6 +165,7 @@ uint2 q1v = ((device const uint2 *)q1)[0];</pre>
       </tbody>
     </table>
     <p class="caption">The ushort run sagged after the fourth sample. Before that sag the runs sat between 14.09 and 14.13, still under the kept build’s 14.20 to 14.27. Greedy token ids matched the unmodified source build on 768 tokens for the kept kernel and for both reverted ones.</p>
+    <p>I tried a lot of other things and nothing else really worked out (a second copy of the Q4 values at 12.01 tok/s, Q4 dot products at 14.10, wider Q6 weight loads at 14.02). Maybe I’ll document everything that failed miserably if anyone is interested.</p>
   </section>
 
   <footer>
